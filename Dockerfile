@@ -1,11 +1,9 @@
-FROM alpine:3.15
-
+FROM alpine:3.12.12
 ARG UNRAR_VERSION=6.1.4
 ARG BUILD_DATE
 ARG VERSION
 ARG TRANSMISSION_VERSION
-#LABEL build_version="Linuxserver.io version:- ${VERSION} Build-date:- ${BUILD_DATE}"
-LABEL maintainer="aptalca"
+LABEL maintainer="juvenal.silva.jr@gmail.com"
 
 RUN \
   echo "**** install build packages ****" && \
@@ -13,9 +11,13 @@ RUN \
     make \
     g++ \
     gcc && \
+  echo "**** install transmission ****" && \
+  apk add --no-cache \
+    transmission-cli \
+    transmission-daemon && \
   echo "**** install packages ****" && \
   apk add --no-cache \
-    ca-certificates \
+    shadow \
     curl \
     findutils \
     jq \
@@ -25,10 +27,10 @@ RUN \
     rsync \
     tar \
     unzip && \
-  echo "**** install transmission ****" && \
-  apk add --no-cache \
-    transmission-cli \
-    transmission-daemon && \
+  echo "**** update user and group for transmission ****" && \
+    groupmod -o -g 666 transmission && \
+    usermod  -o -u 666 -g transmission -d /home/transmission -m -s /bin/sh transmission && \
+    chown -R transmission:transmission /home/transmission && \
   echo "**** install unrar from source ****" && \
   mkdir /tmp/unrar && \
   curl -o \
@@ -41,6 +43,7 @@ RUN \
   make && \
   install -v -m755 unrar /usr/local/bin && \
   echo "**** install third party themes ****" && \
+  mkdir -p /home/transmission/webgui && \
   TRANSMISSIONIC_VERSION=$(curl -s "https://api.github.com/repos/6c65726f79/Transmissionic/releases/latest" | jq -r .tag_name) && \
   curl -o \
     /tmp/transmissionic.zip -L \
@@ -48,13 +51,13 @@ RUN \
   unzip \
     /tmp/transmissionic.zip -d \
     /tmp && \
-  mv /tmp/web /transmissionic && \
+  mv /tmp/web /home/transmission/webgui/transmissionic && \
   curl -o \
     /tmp/combustion.zip -L \
     "https://github.com/Secretmapper/combustion/archive/release.zip" && \
   unzip \
     /tmp/combustion.zip -d \
-    / && \
+    /home/transmission/webgui/ && \
   mkdir -p /tmp/twctemp && \
   TWCVERSION=$(curl -s "https://api.github.com/repos/ronggang/transmission-web-control/releases/latest" | jq -r .tag_name) && \
   curl -o \
@@ -63,36 +66,51 @@ RUN \
   tar xf \
     /tmp/twc.tar.gz -C \
     /tmp/twctemp --strip-components=1 && \
-  mv /tmp/twctemp/src /transmission-web-control && \
+  mv /tmp/twctemp/src /home/transmission/webgui/transmission-web-control && \
   # Enables the original UI button in transmission-web-control
-  ln -s /usr/share/transmission/web/style /transmission-web-control && \
-  ln -s /usr/share/transmission/web/images /transmission-web-control && \
-  ln -s /usr/share/transmission/web/javascript /transmission-web-control && \
-  ln -s /usr/share/transmission/web/index.html /transmission-web-control/index.original.html && \
-  mkdir -p /kettu && \
+  ln -s /usr/share/transmission/web/style /home/transmission/webgui/transmission-web-control && \
+  ln -s /usr/share/transmission/web/images /home/transmission/webgui/transmission-web-control && \
+  ln -s /usr/share/transmission/web/javascript /home/transmission/webgui/transmission-web-control && \
+  ln -s /usr/share/transmission/web/index.html /home/transmission/webgui/transmission-web-control/index.original.html && \
+  mkdir -p /home/transmission/webgui/kettu && \
   curl -o \
     /tmp/kettu.tar.gz -L \
     "https://github.com/endor/kettu/archive/master.tar.gz" && \
   tar xf \
     /tmp/kettu.tar.gz -C \
-    /kettu --strip-components=1 && \
+    /home/transmission/webgui/kettu --strip-components=1 && \
   curl -o \
     /tmp/flood-for-transmission.tar.gz -L \
     "https://github.com/johman10/flood-for-transmission/releases/download/latest/flood-for-transmission.tar.gz" && \
   tar xf \
     /tmp/flood-for-transmission.tar.gz -C \
-    / && \
+    /home/transmission/webgui/ && \
   echo "**** cleanup ****" && \
   apk del --purge \
     build-dependencies && \
   rm -rf \
     /root/.cache \
-    /tmp/*
+    /tmp/* && \
+  mkdir -p \
+     /etc/defaults/transmission \
+     /etc/transmission \
+     /mnt/transmission/watch \
+     /mnt/transmission/torrents \
+     /mnt/transmission/downloads
 
-# copy local files
-COPY root/ /
+# Copy local files
+COPY entrypoint.sh /home/transmission/
+COPY settings.json /etc/defaults/transmission/
+RUN chmod 755 /home/transmission/entrypoint.sh
 
-# ports and volumes
+# Ports
 EXPOSE 9091 51413/tcp 51413/udp
 
-VOLUME /config
+# Volumes
+VOLUME ["/etc/transmission", "/mnt/transmission/watch", "/mnt/transmission/torrents", "/mnt/transmission/downloads"]
+
+# Workdir
+WORKDIR /home/transmission
+
+# Run main process
+CMD ["./entrypoint.sh"]
