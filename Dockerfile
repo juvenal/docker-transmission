@@ -92,15 +92,15 @@ RUN \
     /root/.cache \
     /tmp/* && \
   mkdir -p \
-     /etc/defaults/transmission \
+     /etc/default/transmission \
      /etc/transmission \
      /mnt/transmission/watch \
      /mnt/transmission/torrents \
      /mnt/transmission/downloads
 
 # Copy local files
+COPY settings.json /etc/default/transmission/
 COPY entrypoint.sh /home/transmission/
-COPY settings.json /etc/defaults/transmission/
 RUN chmod 755 /home/transmission/entrypoint.sh
 
 # Ports
