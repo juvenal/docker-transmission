@@ -27,41 +27,10 @@ printf "Updating UID / GID if needed... "
 echo "[DONE]"
 
 #
-# Validate files and accesses
-#
-
-# Check config file
-[[ ! -f /etc/transmission/settings.json ]] && \
-        cp /etc/defaults/transmission/settings.json /etc/transmission/settings.json
-
-# If provided, update WebUI user and password
-if [ ! -z "${WEBUSER}" ] && [ ! -z "${WEBPASS}" ]; then
-    sed -i '/rpc-authentication-required/c\    "rpc-authentication-required": true,' /etc/transmission/settings.json
-    sed -i "/rpc-username/c\    \"rpc-username\": \"${WEBUSER}\"," /etc/transmission/settings.json
-    sed -i "/rpc-password/c\    \"rpc-password\": \"${WEBPASS}\"," /etc/transmission/settings.json
-fi
-
-if [ ! -z "${WHITELIST}" ]; then
-    sed -i '/rpc-whitelist-enabled/c\    "rpc-whitelist-enabled": true,' /etc/transmission/settings.json
-    sed -i "/\"rpc-whitelist\"/c\    \"rpc-whitelist\": \"${WHITELIST}\"," /etc/transmission/settings.json
-fi
-
-if [ ! -z "${HOST_WHITELIST}" ]; then
-    sed -i '/rpc-host-whitelist-enabled/c\    "rpc-host-whitelist-enabled": true,' /etc/transmission/settings.json
-    sed -i "/\"rpc-host-whitelist\"/c\    \"rpc-host-whitelist\": \"${HOST_WHITELIST}\"," /etc/transmission/settings.json
-fi
-
-if [ ! -z "${PEERPORT}" ]; then
-    sed -i "/\"peer-port\"/c\    \"peer-port\": ${PEERPORT}," /etc/transmission/settings.json
-    sed -i '/peer-port-random-on-start/c\     "peer-port-random-on-start": false,' /etc/transmission/settings.json
-fi
-
-#
 # Set directory permissions.
 #
 
 printf "Set permissions... "
-touch ${CONFIG}
 chown -R ${USER}:${USER} \
       /etc/transmission \
       /home/transmission \
@@ -75,19 +44,71 @@ chown -R ${USER}:${USER} \
 echo "[DONE]"
 
 #
-# Because Transmission runs in a container we've to make sure we've a proper
-# listener on 0.0.0.0. We also have to deal with the port which by default is
-# 9091 but can be changed by the user.
+# Validate files and accesses as transmission user
 #
 
-printf "Get listener port... "
-PORT=$(sed -n '/^port *=/{s/port *= *//p;q}' ${CONFIG})
-LISTENER="-s 0.0.0.0:${PORT:=9091}"
-echo "[${PORT}]"
+# Check config file
+cat << EOC1 | su -p ${USER} -c "/bin/sh -s"
+    printf "Creating default settings file... "
+    if [ ! -f /etc/transmission/settings.json ]; then
+        cp /etc/default/transmission/settings.json /etc/transmission/settings.json
+        echo "Done!"
+    else
+        echo "Not needed!"
+    fi
+EOC1
+
+# If provided, update WebUI user and password
+cat << EOC2 | su -p ${USER} -c "/bin/sh -s"
+    printf "Setting web user and password... "
+    if [ ! -z "${WEBUSER}" ] && [ ! -z "${WEBPASS}" ]; then
+        sed -i '/rpc-authentication-required/c\    "rpc-authentication-required": true,' /etc/transmission/settings.json
+        sed -i "/rpc-username/c\    \"rpc-username\": \"${WEBUSER}\"," /etc/transmission/settings.json
+        sed -i "/rpc-password/c\    \"rpc-password\": \"${WEBPASS}\"," /etc/transmission/settings.json
+        echo "Done!"
+    else
+        echo "No change!"
+    fi
+EOC2
+
+# If provided, update the whitelist allowed rpc hosts
+cat << EOC3 | su -p ${USER} -c "/bin/sh -s"
+    printf "Setting white list access... "
+    if [ ! -z "${WHITELIST}" ]; then
+        sed -i '/rpc-whitelist-enabled/c\    "rpc-whitelist-enabled": true,' /etc/transmission/settings.json
+        sed -i "/\"rpc-whitelist\"/c\    \"rpc-whitelist\": \"${WHITELIST}\"," /etc/transmission/settings.json
+        echo "Done!"
+    else
+        echo "No change!"
+    fi
+EOC3
+
+# If provided, define the allowed rpc whitelist hosts
+cat << EOC4 | su -p ${USER} -c "/bin/sh -s"
+    printf "Setting white list rpc access... "
+    if [ ! -z "${HOST_WHITELIST}" ]; then
+        sed -i '/rpc-host-whitelist-enabled/c\    "rpc-host-whitelist-enabled": true,' /etc/transmission/settings.json
+        sed -i "/\"rpc-host-whitelist\"/c\    \"rpc-host-whitelist\": \"${HOST_WHITELIST}\"," /etc/transmission/settings.json
+        echo "Done!"
+    else
+        echo "No change!"
+    fi
+EOC4
+
+# If provided, define the peer port to use
+cat << EOC5 | su -p ${USER} -c "/bin/sh -s"
+    printf "Setting peer port access... "
+    if [ ! -z "${PEERPORT}" ]; then
+        sed -i "/\"peer-port\"/c\    \"peer-port\": ${PEERPORT}," /etc/transmission/settings.json
+        sed -i '/peer-port-random-on-start/c\     "peer-port-random-on-start": false,' /etc/transmission/settings.json
+        echo "Done!"
+    else
+        echo "No change!"
+    fi
+EOC5
 
 #
 # Finally, start Transmission.
 #
-
 echo "Starting Transmission..."
 exec su -p ${USER} -c "transmission-daemon -g $(dirname ${CONFIG}) -f"
